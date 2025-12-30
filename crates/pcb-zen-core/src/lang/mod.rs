@@ -5,6 +5,7 @@ pub mod electrical_check;
 pub mod r#enum;
 pub mod eval;
 pub(crate) mod evaluator_ext;
+pub mod graphic;
 pub(crate) mod interface;
 pub mod module;
 pub mod net;

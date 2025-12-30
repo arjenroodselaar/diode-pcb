@@ -26,6 +26,7 @@ use crate::lang::{assert::assert_globals, component::init_net_global};
 use crate::lang::{
     builtin::builtin_globals,
     component::component_globals,
+    graphic::graphics_globals,
     type_info::{ParameterInfo, TypeInfo},
 };
 use crate::lang::{
@@ -453,6 +454,7 @@ impl EvalContext {
         .with(file_globals)
         .with(model_globals)
         .with(test_bench_globals)
+        .with(graphics_globals)
         .build()
     }
 
