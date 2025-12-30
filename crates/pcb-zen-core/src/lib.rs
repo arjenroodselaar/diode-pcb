@@ -49,6 +49,8 @@ pub mod attrs {
     pub const SKIP_POS: &str = "skip_pos";
     pub const DATASHEET: &str = "datasheet";
     pub const DESCRIPTION: &str = "description";
+    pub const GRAPHIC_PATH: &str = "graphic_path";
+    pub const GRAPHIC_LAYER: &str = "graphic_layer";
 
     pub mod net {
         pub mod kind {
@@ -80,6 +82,7 @@ pub use file_provider::InMemoryFileProvider;
 
 // Re-export types needed by pcb-zen
 pub use lang::component::FrozenComponentValue;
+pub use lang::graphic::FrozenGraphicValue;
 pub use lang::interface::FrozenInterfaceValue;
 pub use lang::module::{FrozenModuleValue, ModulePath};
 pub use lang::net::{FrozenNetValue, NetId};

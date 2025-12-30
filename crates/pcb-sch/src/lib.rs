@@ -96,9 +96,9 @@ impl InstanceRef {
         }
     }
 
-    pub fn append(&self, instance_path: Symbol) -> Self {
+    pub fn append(&self, instance_path: impl Into<Symbol>) -> Self {
         let mut new_path = self.instance_path.clone();
-        new_path.push(instance_path);
+        new_path.push(instance_path.into());
 
         Self {
             module: self.module.clone(),
@@ -181,6 +181,7 @@ pub enum InstanceKind {
     Interface,
     Port,
     Pin,
+    Graphic,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -313,6 +314,12 @@ impl From<String> for AttributeValue {
     }
 }
 
+impl From<&str> for AttributeValue {
+    fn from(s: &str) -> Self {
+        AttributeValue::from(s.to_string())
+    }
+}
+
 /// High-level semantic classification of a net.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NetKind {
@@ -375,6 +382,10 @@ impl Instance {
 
     pub fn pin(type_ref: ModuleRef) -> Self {
         Self::new(type_ref, InstanceKind::Pin)
+    }
+
+    pub fn graphic(type_ref: ModuleRef) -> Self {
+        Self::new(type_ref, InstanceKind::Graphic)
     }
 
     // Fluent-style mutators --------------------------------------------------

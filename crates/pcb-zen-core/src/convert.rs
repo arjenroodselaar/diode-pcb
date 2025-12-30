@@ -6,7 +6,8 @@ use crate::lang::type_info::TypeInfo;
 use crate::moved::{collect_existing_paths, scoped_path, Remapper};
 use crate::{Diagnostic, Diagnostics, WithDiagnostics};
 use crate::{
-    FrozenComponentValue, FrozenModuleValue, FrozenNetValue, FrozenSpiceModelValue, NetId,
+    FrozenComponentValue, FrozenGraphicValue, FrozenModuleValue, FrozenNetValue,
+    FrozenSpiceModelValue, NetId,
 };
 use itertools::Itertools;
 use pcb_sch::physical::PhysicalValue;
@@ -424,9 +425,15 @@ impl ModuleConverter {
 
         // Add direct child components
         for component in module.components() {
-            let child_ref = instance_ref.append(component.name().to_string());
+            let child_ref = instance_ref.append(component.name());
             self.add_component_at(component, &child_ref)?;
-            inst.add_child(component.name().to_string(), child_ref.clone());
+            inst.add_child(component.name(), child_ref);
+        }
+
+        for graphic in module.graphics() {
+            let child_ref = instance_ref.append(graphic.name());
+            self.add_graphic_at(graphic, &child_ref)?;
+            inst.add_child(graphic.name(), child_ref);
         }
 
         // Add instance to schematic.
@@ -635,6 +642,21 @@ impl ModuleConverter {
 
         // Finish component instance.
         self.schematic.add_instance(instance_ref.clone(), comp_inst);
+
+        Ok(())
+    }
+
+    fn add_graphic_at(
+        &mut self,
+        graphic: &FrozenGraphicValue,
+        instance_ref: &InstanceRef,
+    ) -> anyhow::Result<()> {
+        let mut instance = Instance::graphic(ModuleRef::new(graphic.source_path(), graphic.name()));
+
+        instance.add_attribute(crate::attrs::GRAPHIC_PATH, graphic.graphic_path());
+        instance.add_attribute(crate::attrs::GRAPHIC_LAYER, graphic.layer());
+
+        self.schematic.add_instance(instance_ref.clone(), instance);
 
         Ok(())
     }

@@ -5,6 +5,7 @@ use std::path::Path;
 
 use crate::lang::component::FrozenComponentValue;
 use crate::lang::electrical_check::FrozenElectricalCheck;
+use crate::lang::graphic::FrozenGraphicValue;
 use crate::lang::r#enum::{EnumType, EnumValue};
 use crate::lang::test_bench::FrozenTestBenchValue;
 use allocative::Allocative;
@@ -170,7 +171,7 @@ impl Ord for ModulePath {
     }
 }
 
-/// Position data from pcb:sch comments  
+/// Position data from pcb:sch comments
 #[derive(Clone, Debug, ProvidesStaticType, NoSerialize, Allocative)]
 pub struct Position {
     pub x: f64,
@@ -204,7 +205,7 @@ impl<'v> StarlarkValue<'v> for Position {}
 
 pub type PositionMap = SmallMap<String, Position>;
 
-/// Parse position data from pcb:sch comments in file content  
+/// Parse position data from pcb:sch comments in file content
 pub fn parse_positions(content: &str) -> PositionMap {
     pcb_sch::position::parse_position_comments(content)
         .0
@@ -551,6 +552,17 @@ impl<'v, V: ValueLike<'v>> ModuleValueGen<V> {
         self.children
             .iter()
             .filter_map(move |child| child.downcast_ref::<FrozenComponentValue>())
+    }
+
+    /// Get all graphics created in this module (requires downcasting)
+    pub fn graphics<'a>(&'a self) -> impl Iterator<Item = &'a FrozenGraphicValue> + 'a
+    where
+        V: 'a,
+        'v: 'a,
+    {
+        self.children
+            .iter()
+            .filter_map(move |child| child.downcast_ref::<FrozenGraphicValue>())
     }
 
     /// Get all testbenches created in this module (requires downcasting)

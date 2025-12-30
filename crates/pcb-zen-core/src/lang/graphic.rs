@@ -30,13 +30,23 @@ impl From<GraphicError> for starlark::Error {
 #[derive(Clone, Trace, ProvidesStaticType, NoSerialize, Allocative, Freeze)]
 #[repr(C)]
 pub struct GraphicValue {
+    name: String,
     source_path: String,
+    graphic_path: String,
     layer: String,
 }
 
 impl GraphicValue {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     pub fn source_path(&self) -> &str {
         &self.source_path
+    }
+
+    pub fn graphic_path(&self) -> &str {
+        &self.graphic_path
     }
 
     pub fn layer(&self) -> &str {
@@ -47,7 +57,8 @@ impl GraphicValue {
 impl std::fmt::Debug for GraphicValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut debug = f.debug_struct("Graphic");
-        debug.field("source_path", &self.source_path);
+        debug.field("name", &self.name);
+        debug.field("path", &self.graphic_path);
         debug.field("layer", &self.layer);
         debug.finish()
     }
@@ -62,18 +73,23 @@ where
 {
     fn get_attr(&self, attr: &str, heap: &'v Heap) -> Option<Value<'v>> {
         match attr {
-            "source_path" => Some(heap.alloc_str(&self.source_path).to_value()),
+            "name" => Some(heap.alloc_str(&self.name).to_value()),
+            "path" => Some(heap.alloc_str(&self.graphic_path).to_value()),
             "layer" => Some(heap.alloc_str(&self.layer).to_value()),
             _ => None,
         }
     }
 
     fn has_attr(&self, attr: &str, _heap: &'v Heap) -> bool {
-        matches!(attr, "source_path" | "layer")
+        matches!(attr, "name" | "path" | "layer")
     }
 
     fn dir_attr(&self) -> Vec<String> {
-        vec![String::from("source_path"), String::from("layer")]
+        vec![
+            String::from("name"),
+            String::from("path"),
+            String::from("layer"),
+        ]
     }
 }
 
@@ -81,11 +97,13 @@ impl std::fmt::Display for GraphicValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Graphic {{ source_path: \"{}\", layer: \"{}\" }}",
-            &self.source_path, &self.layer
+            "Graphic {{ name: \"{}\", path: \"{}\", layer: \"{}\" }}",
+            &self.name, &self.graphic_path, &self.layer
         )
     }
 }
+
+pub type FrozenGraphicValue = <GraphicValue as starlark::values::Freeze>::Frozen;
 
 /// GraphicType is a factory for creating Graphic values.
 #[derive(Debug, Trace, ProvidesStaticType, NoSerialize, Allocative, Freeze)]
@@ -114,38 +132,50 @@ where
         let param_spec: ParametersSpec<Value<'_>> = ParametersSpec::new_named_only(
             "Graphic",
             [
-                ("source", ParametersSpecParam::<Value<'_>>::Required),
+                ("name", ParametersSpecParam::<Value<'_>>::Required),
+                ("path", ParametersSpecParam::<Value<'_>>::Required),
                 ("layer", ParametersSpecParam::<Value<'_>>::Required),
             ],
         );
 
-        let (source_path, layer) = param_spec.parser(args, eval, |param_parser, eval_ctx| {
-            let source_spec = param_parser
-                .next::<Value>()?
-                .unpack_str()
-                .ok_or(GraphicError::ParameterNotString { name: "source" })?
-                .to_owned();
+        let (name, source_path, graphic_path, layer) =
+            param_spec.parser(args, eval, |param_parser, eval_ctx| {
+                let name = param_parser
+                    .next::<Value>()?
+                    .unpack_str()
+                    .ok_or(GraphicError::ParameterNotString { name: "name" })?
+                    .to_owned();
 
-            if !source_spec.ends_with(".dxf") {
-                return Err(starlark::Error::new_other(GraphicError::SourceNotDxf));
-            }
+                let file_spec = param_parser
+                    .next::<Value>()?
+                    .unpack_str()
+                    .ok_or(GraphicError::ParameterNotString { name: "path" })?
+                    .to_owned();
 
-            let source_path = resolve_source_path(source_spec, eval_ctx.eval_context().unwrap())?;
+                if !file_spec.ends_with(".dxf") {
+                    return Err(starlark::Error::new_other(GraphicError::SourceNotDxf));
+                }
 
-            let layer = param_parser
-                .next::<Value>()?
-                .unpack_str()
-                .ok_or(GraphicError::ParameterNotString { name: "layer" })?
-                .to_owned();
+                let (source_path, graphic_path) =
+                    resolve_graphic_paths(file_spec, eval_ctx.eval_context().unwrap())?;
 
-            Ok((source_path, layer))
-        })?;
+                let layer = param_parser
+                    .next::<Value>()?
+                    .unpack_str()
+                    .ok_or(GraphicError::ParameterNotString { name: "layer" })?
+                    .to_owned();
+
+                Ok((name, source_path, graphic_path, layer))
+            })?;
 
         // The parameters parsed succesful and resolved to a source path.
         // Allocate an object on the heap and add it to the current module.
-        let graphic = eval
-            .heap()
-            .alloc_complex(GraphicValue { source_path, layer });
+        let graphic = eval.heap().alloc_complex(GraphicValue {
+            name,
+            source_path,
+            graphic_path,
+            layer,
+        });
 
         if let Some(mut module) = eval.module_value_mut() {
             module.add_child(graphic);
@@ -164,25 +194,36 @@ pub fn graphics_globals(builder: &mut GlobalsBuilder) {
     const Graphic: GraphicType = GraphicType;
 }
 
-fn resolve_source_path(
-    source_spec: String,
+/// Resolve the source and graphic paths for a given graphic specification.
+fn resolve_graphic_paths(
+    graphic_spec: String,
     eval_ctx: &EvalContext,
-) -> Result<String, starlark::Error> {
-    let current_file = eval_ctx
-        .source_path
-        .as_ref()
-        .ok_or_else(|| starlark::Error::new_other(anyhow!("No source path available")))?;
+) -> Result<(String, String), starlark::Error> {
+    let source_path = std::path::Path::new(
+        eval_ctx
+            .source_path
+            .as_ref()
+            .ok_or_else(|| starlark::Error::new_other(anyhow!("No source path available")))?,
+    );
 
-    let source_path = eval_ctx
+    let graphic_path = eval_ctx
         .get_load_resolver()
-        .resolve_path(&source_spec, std::path::Path::new(&current_file))
-        .map_err(|e| starlark::Error::new_other(anyhow!("Failed to resolve source path: {}", e)))?;
+        .resolve_path(&graphic_spec, &source_path)
+        .map_err(|e| {
+            starlark::Error::new_other(anyhow!("Failed to resolve graphic path: {}", e))
+        })?;
+
+    let source_path = String::from(source_path.to_str().ok_or_else(|| {
+        starlark::Error::new_other(anyhow!("Source path contains invalid UTF-8 characters"))
+    })?);
 
     // Get the absolute path using the file provider.
-    Ok(eval_ctx
+    let absolute_graphic_path = eval_ctx
         .file_provider()
-        .canonicalize(&source_path)
-        .unwrap_or(source_path.clone())
+        .canonicalize(&graphic_path)
+        .unwrap_or(graphic_path.clone())
         .to_string_lossy()
-        .into_owned())
+        .into_owned();
+
+    Ok((source_path, absolute_graphic_path))
 }
